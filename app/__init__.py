@@ -4,6 +4,8 @@ from pymongo.server_api import ServerApi
 import certifi
 from .config import Config
 from .routes import api_bp
+import openai
+
 
 client = MongoClient(Config.CONNECTION_STRING, tlsCAFile=certifi.where())
 db = client['steampunk-backend-dev']
