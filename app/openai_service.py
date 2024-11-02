@@ -1,54 +1,46 @@
-import os
+import replicate
 import requests
-import openai
-import base64
 import io
-from PIL import Image, ImageDraw
+from PIL import Image
 from .config import Config
-
-client = openai.OpenAI(api_key=Config.OPENAI_SECRET_KEY)
 
 class OpenAIService:
     def __init__(self):
-        # self.api_key = os.getenv("OPENAI_API_KEY")
-        self.base_url = "https://api.openai.com/v1"
-
-    def _get_headers(self):
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-
-    def process_image_with_openai(self, image, keywords):
+        self.replicate_api_key = Config.REPLICATE_API_KEY
+        
+    def process_image_with_replicate(self, image, keywords):
         prompt = self.generate_prompt(keywords)
         
         try:
-            # Get the image size from the input image
-            img = Image.open(image)
-            img_size = img.size  # This will be (1200, 1200)
-            image.seek(0)  # Reset file pointer after reading
+            # Initialize replicate client
+            client = replicate.Client(api_token=self.replicate_api_key)
             
-            # Generate mask with matching size
-            mask = self.generate_mask(size=img_size)
-
-            response = client.images.edit(
-                model="dall-e-3",
-                image=image,
-                mask=mask,
-                prompt=prompt,
-                n=1,
-                size="1024x1024"
+            # Run the model
+            output = client.run(
+                "stability-ai/sdxl:39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
+                input={
+                    "image": image,
+                    "prompt": prompt,
+                    "num_outputs": 1,
+                    "guidance_scale": 7.5,
+                    "prompt_strength": 0.8,
+                }
             )
             
-            return response
+            # Convert the output to a list if it isn't already
+            if not isinstance(output, list):
+                output = list(output)
+            
+            # Get the first URL from the output
+            for item in output:
+                if isinstance(item, str) and item.startswith('http'):
+                    return item
+                    
+            raise Exception("No valid image URL found in the response")
             
         except Exception as e:
-            print(f"OpenAI API error: {str(e)}")
+            print(f"Replicate API error: {str(e)}")
             raise e
-
-    def allowed_file(filename):
-        return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg'}
-    
 
     def generate_prompt(self, keywords):
         # OpenAI's max token limit is approximately 4000 characters for image edits
@@ -73,26 +65,11 @@ class OpenAIService:
             return full_prompt
         
         return base_prompt
-        
-    def blobify_image_from_url(self, image_url):
-        response = requests.get(image_url)
-        if response.status_code == 200:
-            return base64.b64encode(response.content).decode('utf-8')
-        else:
-            return None
-        
-    def prepare_image_for_openai(self, image_file):
+
+    def prepare_image_for_replicate(self, image_file):
         try:
             # Read the image file and convert it to RGBA
             image = Image.open(image_file).convert("RGBA")
-            
-            # Ensure the image is square
-            width, height = image.size
-            if width != height:
-                new_size = min(width, height)
-                left = (width - new_size) // 2
-                top = (height - new_size) // 2
-                image = image.crop((left, top, left + new_size, top + new_size))
             
             # Create a BytesIO object
             image_bytes = io.BytesIO()
@@ -103,34 +80,4 @@ class OpenAIService:
             
         except Exception as e:
             raise Exception(f"Error preparing image: {str(e)}")
-
-    def generate_mask(self, size=(1024, 1024), border_width=100):
-        """
-        Generate a mask image with a transparent center and white border.
-        
-        Args:
-            size (tuple): Width and height of the mask (default: 1024x1024)
-            border_width (int): Width of the white border in pixels (default: 100)
-        
-        Returns:
-            BytesIO: Mask image as bytes object
-        """
-        # Create new transparent image
-        mask = Image.new('RGBA', size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(mask)
-        
-        # Draw white border
-        draw.rectangle([(0, 0), (size[0]-1, size[1]-1)], 
-                      fill=(255, 255, 255, 255))
-        # Draw transparent center
-        draw.rectangle([(border_width, border_width), 
-                       (size[0]-border_width-1, size[1]-border_width-1)], 
-                      fill=(0, 0, 0, 0))
-        
-        # Convert to bytes
-        mask_bytes = io.BytesIO()
-        mask.save(mask_bytes, format='PNG')
-        mask_bytes.seek(0)
-            
-        return mask_bytes
     

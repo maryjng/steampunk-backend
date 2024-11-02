@@ -24,16 +24,28 @@ def generate_image():
         return jsonify({'error': 'No selected file'}), 400
 
     try:
-        # Prepare the image for OpenAI
-        image_bytes = openai_service.prepare_image_for_openai(image_file)
+        # Read the file content
+        image_content = image_file.read()
         
-        # Process the image with OpenAI
-        response = openai_service.process_image_with_openai(image=image_bytes, keywords=keywords)
+        # Create a BytesIO object
+        image_bytes = io.BytesIO(image_content)
+        image_bytes.name = image_file.filename  # Some APIs need the filename
         
-        # Get the URL from the response
-        image_url = response.data[0].url
+        # Process the image with Replicate
+        image_url = openai_service.process_image_with_replicate(
+            image=image_bytes, 
+            keywords=keywords
+        )
         
-        return jsonify({'image_url': image_url}), 200
+        # Verify we got a string URL back
+        if not isinstance(image_url, str):
+            raise Exception(f"Unexpected response type: {type(image_url)}")
+        
+        return jsonify({
+            'success': True,
+            'image_url': image_url
+        }), 200
     
     except Exception as e:
+        print(f"Error in generate_image: {type(e)} - {str(e)}")  # Detailed error logging
         return jsonify({'error': str(e)}), 500
