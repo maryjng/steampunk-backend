@@ -32,6 +32,7 @@ class OpenAIService:
             mask = self.generate_mask(size=img_size)
 
             response = client.images.edit(
+                model="dall-e-3",
                 image=image,
                 mask=mask,
                 prompt=prompt,
@@ -50,24 +51,29 @@ class OpenAIService:
     
 
     def generate_prompt(self, keywords):
-        base_modifications = [
-            "transform this image into steampunk style",
-            "add brass and copper metallic elements",
-            "incorporate vintage Victorian industrial aesthetics",
-            "include gears, pipes, and steam machinery",
-            "maintain the original composition but add steampunk overlays",
-            "add weathered metal textures",
-            "include steam-powered mechanical modifications"
-        ]
-        
+        # OpenAI's max token limit is approximately 4000 characters for image edits
+        MAX_PROMPT_LENGTH = 1000  # Using a conservative limit
+
+        base_prompt = """Transform into dark industrial steampunk architecture. 
+        Replace natural elements with dark industrial material like cobblestone. 
+        Make the sky darker with haze and pollution.
+        Add massive turning gears, steam-belching pipes, and industrial machinery. 
+        Make it dystopian with soot-stained metal and copper oxidation."""
+
         if keywords:
             keywords_str = ', '.join(keywords)
-            prompt = f"Transform this image into steampunk style by adding: {keywords_str}. {' '.join(base_modifications)}. Make sure to blend the steampunk elements seamlessly with the original image. The modifications should look realistic and integrated, not like stickers or overlays. Maintain the quality and clarity of the original image while adding these steampunk elements."
-        else:
-            prompt = f"Please {' and '.join(base_modifications)}. The modifications should look realistic and integrated, not like stickers or overlays. Maintain the quality and clarity of the original image while adding these steampunk elements."
+            full_prompt = f"Transform into dark steampunk architecture with: {keywords_str}. {base_prompt}"
+            
+            # If prompt is too long, truncate keywords while keeping base prompt
+            if len(full_prompt) > MAX_PROMPT_LENGTH:
+                available_length = MAX_PROMPT_LENGTH - len(base_prompt) - len("Transform into dark steampunk architecture with: . ")
+                truncated_keywords = keywords_str[:available_length - 3] + "..."
+                return f"Transform into dark steampunk architecture with: {truncated_keywords}. {base_prompt}"
+            
+            return full_prompt
         
-        return prompt
-    
+        return base_prompt
+        
     def blobify_image_from_url(self, image_url):
         response = requests.get(image_url)
         if response.status_code == 200:
@@ -128,5 +134,3 @@ class OpenAIService:
             
         return mask_bytes
     
-
-
