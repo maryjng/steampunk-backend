@@ -2,10 +2,10 @@ from flask import Flask
 from flask_cors import CORS
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
-import certifi
 from .config import Config
 from .routes import api_bp
 import openai
+import os
 
 
 # client = MongoClient(Config.CONNECTION_STRING, tlsCAFile=certifi.where())
