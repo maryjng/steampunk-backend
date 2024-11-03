@@ -9,7 +9,7 @@ openai_service = OpenAIService()
 
 @api_bp.route('/example', methods=['GET'])
 def example_route():
-    return jsonify({"message": "This is an example route!"})
+    return jsonify({"message": "This is a test example route!"})
 
 
 @api_bp.route('/generate-image', methods=['POST'])
