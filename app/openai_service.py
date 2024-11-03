@@ -3,7 +3,7 @@ import requests
 import openai
 import base64
 import io
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageEnhance
 from .config import Config
 
 client = openai.OpenAI(api_key=Config.OPENAI_SECRET_KEY)
@@ -23,17 +23,60 @@ class OpenAIService:
         prompt = self.generate_prompt(keywords)
         
         try:
-            # Get the image size from the input image
-            img = Image.open(image)
-            img_size = img.size  # This will be (1200, 1200)
-            image.seek(0)  # Reset file pointer after reading
+            # Open and convert image to RGBA
+            img = Image.open(image).convert('RGBA')
             
-            # Generate mask with matching size
-            mask = self.generate_mask(size=img_size)
-
+            # First convert to grayscale as a base
+            grayscale = img.convert('L')
+            
+            # Create a gray-tinted effect
+            width, height = grayscale.size
+            gray = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+            
+            # Define the gray tones (more pronounced gray)
+            highlight = (200, 200, 205, 255)  # Darker light gray
+            midtone = (150, 150, 155, 255)    # More pronounced medium gray
+            shadow = (100, 100, 105, 255)      # Darker shadow gray
+            
+            # Apply the toning effect
+            pixels = grayscale.load()
+            gray_pixels = gray.load()
+            
+            for x in range(width):
+                for y in range(height):
+                    pixel_value = pixels[x, y]
+                    if pixel_value > 170:
+                        gray_pixels[x, y] = highlight
+                    elif pixel_value > 85:
+                        gray_pixels[x, y] = midtone
+                    else:
+                        gray_pixels[x, y] = shadow
+            
+            # Blend with original image
+            img = Image.blend(img, gray, 0.85)  # Increased blend for stronger gray effect
+            
+            # Adjust contrast and brightness
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.15)  # Slightly reduced contrast
+            
+            brightness = ImageEnhance.Brightness(img)
+            img = brightness.enhance(0.95)  # Less darkening
+            
+            # Resize to 1024x1024
+            img = img.resize((1024, 1024))
+            
+            # Convert to PNG bytes
+            img_bytes = io.BytesIO()
+            img.save(img_bytes, format='PNG')
+            img_bytes.seek(0)
+            
+            # Generate mask
+            mask = self.generate_mask(size=(1024, 1024))
+            
+            print(f"Sending prompt: {prompt}")
+            
             response = client.images.edit(
-                model="dall-e-3",
-                image=image,
+                image=img_bytes,
                 mask=mask,
                 prompt=prompt,
                 n=1,
@@ -51,24 +94,20 @@ class OpenAIService:
     
 
     def generate_prompt(self, keywords):
-        # OpenAI's max token limit is approximately 4000 characters for image edits
-        MAX_PROMPT_LENGTH = 1000  # Using a conservative limit
-
-        base_prompt = """Transform into dark industrial steampunk architecture. 
-        Replace natural elements with dark industrial material like cobblestone. 
-        Make the sky darker with haze and pollution.
-        Add massive turning gears, steam-belching pipes, and industrial machinery. 
-        Make it dystopian with soot-stained metal and copper oxidation."""
+        base_prompt = """Transform into Victorian steampunk while preserving architecture:
+        1. Keep elegant building shapes, add metal/brass/copper materials
+        2. Add clockworks, gears, steam pipes along architectural lines
+        3. Dark polluted sky, brown cobblestone ground
+        4. Aged industrial materials but maintain Victorian elegance"""
 
         if keywords:
             keywords_str = ', '.join(keywords)
-            full_prompt = f"Transform into dark steampunk architecture with: {keywords_str}. {base_prompt}"
+            full_prompt = f"{base_prompt} Additional elements: {keywords_str}"
             
-            # If prompt is too long, truncate keywords while keeping base prompt
-            if len(full_prompt) > MAX_PROMPT_LENGTH:
-                available_length = MAX_PROMPT_LENGTH - len(base_prompt) - len("Transform into dark steampunk architecture with: . ")
+            if len(full_prompt) > 1000:
+                available_length = 1000 - len(base_prompt) - len(" Additional elements: ")
                 truncated_keywords = keywords_str[:available_length - 3] + "..."
-                return f"Transform into dark steampunk architecture with: {truncated_keywords}. {base_prompt}"
+                return f"{base_prompt} Additional elements: {truncated_keywords}"
             
             return full_prompt
         
@@ -106,7 +145,7 @@ class OpenAIService:
 
     def generate_mask(self, size=(1024, 1024), border_width=100):
         """
-        Generate a mask image with a transparent center and white border.
+        Generate a mask image with a white border and center.
         
         Args:
             size (tuple): Width and height of the mask (default: 1024x1024)
@@ -115,22 +154,22 @@ class OpenAIService:
         Returns:
             BytesIO: Mask image as bytes object
         """
-        # Create new transparent image
-        mask = Image.new('RGBA', size, (0, 0, 0, 0))
+        # Create new white image (everything modifiable)
+        mask = Image.new('RGBA', size, (255, 255, 255, 255))
         draw = ImageDraw.Draw(mask)
         
-        # Draw white border
-        draw.rectangle([(0, 0), (size[0]-1, size[1]-1)], 
-                      fill=(255, 255, 255, 255))
-        # Draw transparent center
-        draw.rectangle([(border_width, border_width), 
-                       (size[0]-border_width-1, size[1]-border_width-1)], 
-                      fill=(0, 0, 0, 0))
+        # Draw black rectangle for the area we want to protect (original composition)
+        inner_box = [(border_width, border_width), 
+                    (size[0]-border_width-1, size[1]-border_width-1)]
+        draw.rectangle(inner_box, fill=(0, 0, 0, 0))
+        
+        # Debug: Save a copy of the mask
+        mask.save('debug_mask.png')
         
         # Convert to bytes
         mask_bytes = io.BytesIO()
         mask.save(mask_bytes, format='PNG')
         mask_bytes.seek(0)
-            
+        
         return mask_bytes
     

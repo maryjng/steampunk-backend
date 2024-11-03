@@ -1,4 +1,5 @@
 from flask import Flask
+from flask_cors import CORS
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 import certifi
@@ -7,18 +8,22 @@ from .routes import api_bp
 import openai
 
 
-client = MongoClient(Config.CONNECTION_STRING, tlsCAFile=certifi.where())
-db = client['steampunk-backend-dev']
+# client = MongoClient(Config.CONNECTION_STRING, tlsCAFile=certifi.where())
+# db = client['steampunk-backend-dev']
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
     
-    # from .auth.routes import auth_bp
-    # from .main.routes import main_bp
+    ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000').split(',')
     
-    # app.register_blueprint(auth_bp, url_prefix='/auth')
-    # app.register_blueprint(main_bp, url_prefix='/')
+    CORS(app, resources={
+        r"/api/*": {
+            "origins": ALLOWED_ORIGINS,
+            "methods": ["GET", "POST", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"]
+        }
+    })
 
     app.register_blueprint(api_bp, url_prefix='/api')
 
